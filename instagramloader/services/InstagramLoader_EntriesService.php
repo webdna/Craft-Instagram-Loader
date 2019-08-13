@@ -237,8 +237,57 @@ class InstagramLoader_EntriesService extends BaseApplicationComponent
 		$entry->postDate 	= $instagram['created_time'];
 		// Set the title
 		$entry->getContent()->title = $this->truncateTitle($caption);
+
+		$instagramFileUrl = $instagram['images']['standard_resolution']['url'] ?? null;
+
+		if (isset($instagramFileUrl)) {
+
+			$tmpfname = tempnam("/tmp", "insta_img_");
+			$img = file_get_contents($instagramFileUrl);
+			file_put_contents($tmpfname, $img);
+
+			$imageTitle = $entry->getContent()->title ?? null;
+			$imageExt = pathinfo(parse_url($instagramFileUrl, PHP_URL_PATH), PATHINFO_EXTENSION);
+
+			if (isset($tmpfname) && isset($imageTitle) && isset($imageExt)) {
+
+				// Asset Volume Id for Image
+				$volumeId = 1;
+
+				$response = craft()->assets->insertFileByLocalPath(
+	    			$tmpfname,
+	    			$imageTitle.$imageExt,
+	    			$volumeId,
+	    			AssetConflictResolution::KeepBoth
+				);
+
+				if ($response) {
+					$status = $response->attributes['status'] ?? null;
+
+					if ($status == 'success') {
+						$assetId = $response->getDataItem('fileId') ?? null;
+						$asset = craft()->assets->getFileById($assetId) ?? null;
+						$fieldId = craft()->fields->getFieldByHandle('instagramAsset')->id ?? null;
+						$sourceId = $asset->getSource()->id ?? null;
+
+						if (isset($asset) && isset($fieldId) && isset($sourceId)) {
+							if (craft()->focusPoint_focusPoint) {
+								craft()->focusPoint_focusPoint->createOrUpdateFocusPoint('0.00', '0.00', $assetId, $fieldId, $sourceId);
+							}
+						}
+					}
+				}
+
+			}
+			unlink($tmpfname);
+
+		}
+
 		// Set the other content
 		$entry->setContentFromPost($this->parseContent($instagram, $caption, $userId));
+
+		// Set newly uploaded image to instagramAsset field in entry
+		$entry->getContent()->setAttribute('instagramAsset',array($assetId));
 
 		// Save the entry!
 		$this->saveEntry($entry);
